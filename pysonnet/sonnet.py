@@ -3,6 +3,7 @@ import yaml
 import psutil
 import logging
 import subprocess
+import platform
 
 
 log = logging.getLogger(__name__)
@@ -19,7 +20,9 @@ def test_sonnet(sonnet_path):
     """
     log.info("Testing sonnet")
     # Check to see if we have a valid path.
-    em_path = os.path.join(sonnet_path, 'bin', 'em')
+    #em_path = os.path.join(sonnet_path, 'bin', 'em')
+    exe_name = "em.exe" if platform.system() == "Windows" else "em"
+    em_path = os.path.join(sonnet_path, "bin", exe_name)
     if not os.path.isfile(em_path):
         raise ValueError("Invalid sonnet path")
 

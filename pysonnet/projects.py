@@ -126,7 +126,8 @@ class Project(dict):
         # add other options
         self['control']['q_accuracy'] = "Y" if q_accuracy else "N"
         self['control']['res_detection'] = "Y" if resonance_detection else "N"
-        self['control']['speed'] = b.SPEED_TYPES[memory]
+        #self['control']['speed'] = b.SPEED_TYPES[memory]
+        self['control']['speed'] = 0
         log.debug("q factor accuracy {}".format("on" if q_accuracy else "off"))
 
     def run(self, analysis_type=None, file_path=None, options='-v',
@@ -954,6 +955,7 @@ class GeometryProject(Project):
         # count the number of ports already made
         ports = ['POR1' + c for c in self['geometry']['ports'].split('POR1') if c]
         n_ports = len(ports)
+        print('number of ports: ', n_ports)
         # get all the file_ids from the ports
         file_ids = []
         for port in ports:
@@ -966,8 +968,10 @@ class GeometryProject(Project):
         polygon_index = 0
         position = np.array([x, y])
         new_position = position
+        #print('port_num: ', n_ports)
         for index, polygon in enumerate(polygons):
             # Check polygon if in right level
+            #print('polygon_index: ',index)
             if isinstance(level, int):
                 if int(polygon.splitlines()[1].split(" ")[0]) != level:
                     continue
@@ -984,8 +988,34 @@ class GeometryProject(Project):
                     raise ValueError("'level' keyword argument must be an integer or string.")
 
             # Filter out Techlayer, End, Brick and Via lines
-            generator = (r for r in polygon.splitlines() if r and not r[0] in ('T', 'E', 'B', 'V'))
-            polygon = np.genfromtxt(generator, skip_header=1)
+            #generator = (r for r in polygon.splitlines() if r and not r[0] in ('T', 'E', 'B', 'V'))
+            generator = (
+                r for r in polygon.splitlines()
+                if r.strip() and len(r.split()) == 2
+            )
+            
+            #for r in polygon.splitlines():
+                #if r and not r[0] in ('T', 'E', 'B', 'V'):
+            #    print(r)
+            #polygon_test = np.genfromtxt(generator, skip_header=1)
+            #polygon = np.genfromtxt(generator, skip_header=1)
+            polygon = np.genfromtxt(generator)
+            # skip the “POLYGON …” header, then only keep lines that have exactly two floats
+            #lines = polygon.splitlines()[1:]
+            #pts = []
+            #for ln in lines:
+            #    parts = ln.strip().split()
+            #    if len(parts) == 2:
+            #        try:
+            #            x, y = float(parts[0]), float(parts[1])
+            #        except ValueError:
+            #            continue
+            #    pts.append((x, y))
+            #polygon = np.array(pts)
+            #print((polygon[1:]+polygon[-1:])/2)
+            #print((polygon_test[1:]+polygon_test[-1:])/2)
+
+
             mid_points = (polygon[1:] + polygon[:-1]) / 2
             distance = np.linalg.norm(mid_points - position, axis=1)
             trial_index = np.argmin(np.abs(distance))
@@ -997,23 +1027,59 @@ class GeometryProject(Project):
                 new_position = mid_points[min_index, :]
 
         # set the debug_id equal to the port id
-        polygon = polygons[polygon_index].splitlines()
-        condition = (not polygon[0] or polygon[0][:3] == 'MET' or
-                     polygon[0][:3] == 'BRI' or polygon[0][:3] == 'VIA')
-        index = 1 if condition else 0
-        level = polygon[index]
-        level = level.split()
-        if level[4] not in file_ids:
-            file_id = str(n_ports + 10 * len(polygons))
-            level[4] = file_id
-            level = " ".join(level)
-            polygon[index] = level
-            polygon = os.linesep.join(polygon)
-            polygons[polygon_index] = polygon
-            polygons = os.linesep.join(polygons)
-            self['geometry']['polygons'] = polygons
+        #polygon = polygons[polygon_index].splitlines()
+        #condition = (not polygon[0] or polygon[0][:3] == 'MET' or
+        #             polygon[0][:3] == 'BRI' or polygon[0][:3] == 'VIA')
+        #index = 1 if condition else 0
+        #level = polygon[index]
+        #level = level.split()
+        #if level[4] not in file_ids:
+        #    file_id = str(n_ports + 10 * len(polygons))
+        #   level[4] = file_id
+        #    level = " ".join(level)
+        #    polygon[index] = level
+        #    polygon = os.linesep.join(polygon)
+        #    polygons[polygon_index] = polygon
+        #    polygons = os.linesep.join(polygons)
+        #    self['geometry']['polygons'] = polygons
+        #else:
+        #    file_id = level[4]
+
+
+        # grab the raw multi‐polygon string
+        raw = self['geometry']['polygons']
+
+        # 1) split into individual polygon blocks (dropping any empty splits)
+        blocks = [blk for blk in raw.split("\n\nEND\n") if blk.strip()]
+
+        print(blocks[-1])
+
+        # 2) take the block we want to relabel
+        lines = blocks[polygon_index].splitlines()
+
+        # decide whether the header is on line 0 or 1 exactly as before
+        condition = (not lines[0] or lines[0][:3] in ('MET','BRI','VIA'))
+        hdr_idx = 1 if condition else 0
+
+        # pull it apart, replace the file_id token, and write it back
+        tokens = lines[hdr_idx].split()
+        print('tokens=',tokens)
+        print('file_id:',file_ids )
+        if tokens[4] not in file_ids:
+            tokens[4] = str(n_ports + 10 * len(blocks))
+            file_id = tokens[4]
         else:
-            file_id = level[4]
+            file_id = tokens[4]
+        lines[hdr_idx] = " ".join(tokens)
+        print('len of blks: ', len(blocks))
+        print('lines', lines[hdr_idx])
+
+        # re-join that one block and put it back in the list
+        blocks[polygon_index] = os.linesep.join(lines)
+
+        # 3) rebuild the full geometry string, ensuring every block ends in "END\n"
+        self['geometry']['polygons'] = "".join(f"{blk}\n\nEND\n" for blk in blocks)
+        
         # set the port format string
         diagonal = kwargs.pop("diagonal", None)
         diagonal_string = b.DIAGONAL_FORMAT.format(allowed="Y" if diagonal else "N")
