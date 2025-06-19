@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 
 def get_version(path):
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f.readlines():
             if line.startswith('__version__'):
                 sep = '"' if '"' in line else "'"
